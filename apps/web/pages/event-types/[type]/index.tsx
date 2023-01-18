@@ -192,6 +192,7 @@ const EventTypePage = (props: EventTypeSetupProps) => {
         startDate: periodDates.startDate,
         endDate: periodDates.endDate,
       },
+      bookingInputs: eventType.bookingInputs,
       periodType: eventType.periodType,
       periodCountCalendarDays: eventType.periodCountCalendarDays ? "1" : "0",
       schedulingType: eventType.schedulingType,

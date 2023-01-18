@@ -1,25 +1,31 @@
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import Link from "next/link";
 import type { CustomInputParsed, EventTypeSetupProps, FormValues } from "pages/event-types/[type]";
 import { useEffect, useState } from "react";
-import { Controller, useFormContext } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useFormContext } from "react-hook-form";
 import short from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 
 import DestinationCalendarSelector from "@calcom/features/calendars/DestinationCalendarSelector";
-import CustomInputItem from "@calcom/features/eventtypes/components/CustomInputItem";
 import { APP_NAME, CAL_URL, IS_SELF_HOSTED } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import {
   Badge,
+  BooleanToggleGroupField,
   Button,
   Checkbox,
   Dialog,
   DialogClose,
   DialogContent,
   DialogFooter,
+  DialogHeader,
+  Form,
   Icon,
+  Input,
+  InputField,
   Label,
+  SelectField,
   SettingsToggle,
   showToast,
   TextField,
@@ -48,6 +54,236 @@ const getRandomId = (length = 8) => {
     )
   );
 };
+
+function FormBuilder({
+  title = "Booking questions",
+  description = "Customize the questions asked on the booking page",
+  addFieldLabel = "Add a question",
+}) {
+  const FieldTypes = [
+    {
+      label: "Short Text",
+      value: "text",
+    },
+    {
+      label: "Number",
+      value: "number",
+    },
+    {
+      label: "Long Text",
+      value: "textarea",
+    },
+    {
+      label: "Select",
+      value: "select",
+      needsOptions: true,
+    },
+    {
+      label: "MultiSelect",
+      value: "multiselect",
+      needsOptions: true,
+    },
+    {
+      label: "Phone",
+      value: "phone",
+    },
+    {
+      label: "Email",
+      value: "email",
+    },
+    {
+      label: "Multiple Emails",
+      value: "multiemail",
+    },
+    {
+      label: "Location",
+      value: "location",
+      systemOnly: true,
+    },
+  ];
+  const fieldsForm = useFormContext<FormValues>();
+
+  const fieldForm = useForm();
+  const { fields, append, swap, remove } = useFieldArray({
+    control: fieldsForm.control,
+    // TODO: Make it configurable
+    name: "bookingInputs",
+  });
+  function OptionsField({
+    label = "Options",
+    className = "",
+    readonly = false,
+    options = [
+      {
+        label: "Option 1",
+      },
+      {
+        label: "Option 2",
+      },
+    ],
+  }) {
+    const [animationRef] = useAutoAnimate<HTMLUListElement>();
+
+    const [optionsState, setOptionsState] = useState(options);
+    return (
+      <div className={className}>
+        <Label>{label}</Label>
+        <div className="rounded-md bg-gray-50 p-4">
+          <ul ref={animationRef}>
+            {optionsState.map((option, index) => (
+              <li key={index}>
+                <div className="flex items-center">
+                  <Input value={option.label} readonly={readonly} placeholder={`Enter Option ${index + 1}`} />
+                  {optionsState.length > 2 && !readonly && (
+                    <Button
+                      type="button"
+                      className="mb-2 -ml-8 hover:!bg-transparent focus:!bg-transparent focus:!outline-none focus:!ring-0"
+                      size="icon"
+                      color="minimal"
+                      StartIcon={Icon.FiX}
+                      onClick={() => {
+                        setOptionsState((options) => {
+                          const newOptions = [...options];
+                          newOptions.splice(index, 1);
+                          return newOptions;
+                        });
+                      }}
+                    />
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {!readonly && (
+            <Button
+              color="minimal"
+              onClick={() => setOptionsState((options) => [...options, { label: "" }])}
+              StartIcon={Icon.FiPlus}>
+              Add an Option
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  const [isAddQuestionFormOpen, setIsAddFieldFormOpen] = useState(false);
+  const fieldType = FieldTypes.find((f) => f.value === fieldForm.watch("type"));
+  return (
+    <div>
+      <Form
+        form={fieldsForm}
+        handleSubmit={(data) => {
+          alert("FORM SUBMITTED");
+          debugger;
+          console.log(data);
+        }}>
+        <div className="text-sm font-semibold text-gray-700 ltr:mr-1 rtl:ml-1">{title}</div>
+        <p className=" max-w-[280px] break-words py-1 text-sm text-gray-500 sm:max-w-[500px]">
+          {description}
+        </p>
+        <ul className="mt-2 rounded-md border">
+          {fields.map((input, index) => {
+            const fieldType = FieldTypes.find((f) => f.value === input.type);
+            return (
+              <li key={index} className="group relative flex justify-between border-b p-4 last:border-b-0">
+                <button
+                  type="button"
+                  className="invisible absolute -left-[12px] ml-0 flex  h-6 w-6 scale-0 items-center justify-center rounded-md border bg-white p-1 text-gray-400 transition-all hover:border-transparent hover:text-black hover:shadow disabled:hover:border-inherit disabled:hover:text-gray-400 disabled:hover:shadow-none group-hover:visible group-hover:scale-100"
+                  onClick={() => swap(index, index - 1)}>
+                  <Icon.FiArrowUp className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  className="invisible absolute -left-[12px] mt-8 ml-0 flex  h-6 w-6 scale-0  items-center justify-center rounded-md border bg-white p-1 text-gray-400 transition-all hover:border-transparent hover:text-black hover:shadow disabled:hover:border-inherit disabled:hover:text-gray-400 disabled:hover:shadow-none group-hover:visible group-hover:scale-100"
+                  onClick={() => swap(index, index + 1)}>
+                  <Icon.FiArrowDown className="h-5 w-5" />
+                </button>
+                <div className="flex">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 ltr:mr-1 rtl:ml-1">{input.label}</div>
+                    <p className="max-w-[280px] break-words py-1 text-sm text-gray-500 sm:max-w-[500px]">
+                      {fieldType.label}
+                    </p>
+                  </div>
+                  <div className="space-x-2">
+                    <Badge variant="gray">{input.required ? "Required" : "Optional"}</Badge>
+                    {input.readOnly && <Badge variant="gray">Readonly</Badge>}
+                  </div>
+                </div>
+                {!input.readOnly && (
+                  <div className="flex items-center">
+                    <Button color="secondary">Edit</Button>
+                    {!input.mustHave && (
+                      <Button
+                        color="minimal"
+                        onClick={() => {
+                          remove(index);
+                        }}
+                        StartIcon={Icon.FiTrash2}
+                      />
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <Button
+          color="minimal"
+          onClick={() => setIsAddFieldFormOpen(true)}
+          className="mt-4"
+          StartIcon={Icon.FiPlus}>
+          {addFieldLabel}
+        </Button>
+      </Form>
+      <Dialog open={isAddQuestionFormOpen} onOpenChange={setIsAddFieldFormOpen}>
+        <DialogContent>
+          <DialogHeader title="Add a question" subtitle="Customize the questions asked on the booking page" />
+          <div>
+            <Form
+              form={fieldForm}
+              handleSubmit={(data) => {
+                fieldsForm.setValue("bookingInputs", [...fieldsForm.getValues("bookingInputs"), data]);
+                setIsAddFieldFormOpen(false);
+              }}>
+              <SelectField
+                onChange={(e) => {
+                  fieldForm.setValue("type", e?.value);
+                }}
+                options={FieldTypes.filter((f) => !f.systemOnly)}
+                label="Input Type"
+              />
+              <InputField {...fieldForm.register("label")} containerClassName="mt-6" label="Label" />
+              <InputField {...fieldForm.register("name")} containerClassName="mt-6" label="Name" />
+              {fieldType?.needsOptions ? (
+                <OptionsField {...fieldForm.register("options")} className="mt-6" />
+              ) : null}
+              <Controller
+                name="required"
+                control={fieldForm.control}
+                render={({ field: { value, onChange } }) => {
+                  return (
+                    <BooleanToggleGroupField
+                      value={value}
+                      onValueChange={(val) => {
+                        onChange(val);
+                      }}
+                      label="Required"
+                    />
+                  );
+                }}
+              />
+              <DialogFooter>
+                <DialogClose color="secondary">Cancel</DialogClose>
+                <Button type="submit">Add</Button>
+              </DialogFooter>
+            </Form>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 export const EventAdvancedTab = ({ eventType, team }: Pick<EventTypeSetupProps, "eventType" | "team">) => {
   const connectedCalendarsQuery = trpc.viewer.connectedCalendars.useQuery();
@@ -138,7 +374,7 @@ export const EventAdvancedTab = ({ eventType, team }: Pick<EventTypeSetupProps, 
         />
       </div>
       <hr />
-      <div className="">
+      {/* <div className="">
         <SettingsToggle
           title={t("additional_inputs")}
           description={t("additional_input_description")}
@@ -179,7 +415,8 @@ export const EventAdvancedTab = ({ eventType, team }: Pick<EventTypeSetupProps, 
             </Button>
           )}
         </SettingsToggle>
-      </div>
+      </div> */}
+      <FormBuilder />
       <hr />
       <RequiresConfirmationController
         seatsEnabled={seatsEnabled}

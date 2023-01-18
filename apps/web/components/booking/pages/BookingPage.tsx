@@ -1,3 +1,4 @@
+import { ErrorMessage as RhfErrorMessage } from "@hookform/error-message";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { EventTypeCustomInputType, WorkflowActions } from "@prisma/client";
 import { useMutation } from "@tanstack/react-query";
@@ -5,6 +6,7 @@ import { isValidPhoneNumber } from "libphonenumber-js";
 import { useSession } from "next-auth/react";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import * as React from "react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { FormattedNumber, IntlProvider } from "react-intl";
@@ -13,11 +15,12 @@ import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
 import BookingPageTagManager from "@calcom/app-store/BookingPageTagManager";
+//TODO: ManageBookings: Don't import from ReactAwesomeQueryBuilder instead make ReactAwesomeQueryBuilder use a common config that would be imported here as well
+import config from "@calcom/app-store/ee/routing-forms/components/react-awesome-query-builder/config/config";
 import {
   EventLocationType,
   getEventLocationType,
   getEventLocationValue,
-  getHumanReadableLocationValue,
   locationKeyToString,
 } from "@calcom/app-store/locations";
 import { createPaymentLink } from "@calcom/app-store/stripepayment/lib/client";
@@ -30,6 +33,7 @@ import {
   useIsBackgroundTransparent,
   useIsEmbed,
 } from "@calcom/embed-core/embed-iframe";
+import getBookingResponsesSchema from "@calcom/features/bookings/lib/getBookingResponsesSchema";
 import CustomBranding from "@calcom/lib/CustomBranding";
 import classNames from "@calcom/lib/classNames";
 import { APP_NAME } from "@calcom/lib/constants";
@@ -39,7 +43,7 @@ import useTheme from "@calcom/lib/hooks/useTheme";
 import { HttpError } from "@calcom/lib/http-error";
 import { getEveryFreqFor } from "@calcom/lib/recurringStrings";
 import { collectPageParameters, telemetryEventTypes, useTelemetry } from "@calcom/lib/telemetry";
-import { AddressInput, Button, EmailInput, Form, Icon, PhoneInput, Tooltip } from "@calcom/ui";
+import { AddressInput, Button, EmailInput, Form, Icon, Input, Label, PhoneInput, Tooltip } from "@calcom/ui";
 import { Group, RadioField } from "@calcom/ui";
 
 import { asStringOrNull } from "@lib/asStringOrNull";
@@ -75,6 +79,232 @@ type BookingFormValues = {
   };
   rescheduleReason?: string;
   smsReminderNumber?: string;
+};
+
+const buildComponentFromInput = (
+  input: {
+    name: string;
+    type: string;
+    label: string;
+    required: boolean;
+    options: { label: string }[];
+    optionsInputs: { type: string; required: true };
+  },
+  isRescheduleView?: boolean,
+  t
+) => {
+  const Component = config.widgets[input.type]?.factory;
+  //FIXME: ManageBookings: Define all types of inputs in widgets itself
+  if (!Component && input.type !== "radioWithInput") {
+    throw new Error(`No widget found for type ${input.type}`);
+  }
+
+  // Widget Components don't have Label, so add that here for now. TODO: ManageBookings: They should have label
+  let ComponentWithLabel = function (props) {
+    return (
+      <div>
+        <Label>{input.label}</Label>
+        <Component {...props} />
+      </div>
+    );
+  };
+
+  if (input.type === "radioWithInput") {
+    ComponentWithLabel = function RadioWithInputWithLabel(props) {
+      useEffect(() => {
+        props.setValue({
+          value: input.options[0].value,
+        });
+      }, []);
+      // const getLocationInputField = () => {
+      //   return (
+      //     <div className="mb-4">
+      //       {/* <Label>
+      //       </Label> */}
+      //       {Field ? (
+      //         <div>
+      //           <div className="mt-1">{Field}</div>
+      //           {bookingForm.formState.errors.phone && (
+      //             <div className="mt-2 flex items-center text-sm text-red-700 ">
+      //               <Icon.FiInfo className="h-3 w-3 ltr:mr-2 rtl:ml-2" />
+      //               <p>{t("invalid_number")}</p>
+      //             </div>
+      //           )}
+      //         </div>
+      //       ) : null}
+      //     </div>
+      //   );
+      // };
+
+      return (
+        <div>
+          {/* <div className={classNames(locations.length <= 1 && "hidden")}> */}
+          <Label>{input.label}</Label>
+          <div>
+            {isRescheduleView ? (
+              <div>
+                {/* <span className="block text-sm font-medium text-gray-700 dark:text-white">
+                  {bookingInput.label}
+                </span>
+                <p className="mt-1 text-sm text-gray-500">
+                  {getHumanReadableLocationValue(booking?.location, t)}
+                </p> */}
+                <div>Show READONLY location</div>
+              </div>
+            ) : (
+              <div
+                className="mb-4"
+                onChange={(e) => {
+                  props.setValue({
+                    value: e.target.value,
+                  });
+                }}>
+                {["radio", "radioWithInput"].includes(input.type) &&
+                  input.options.map((option, i) => {
+                    return (
+                      <label key={i} className="block">
+                        <input
+                          type="radio"
+                          name={`${input.name}.value`}
+                          // disabled={!!disableLocations}
+                          //TODO: ManageBookings: What does this location class do?
+                          className="location dark:bg-darkgray-300 dark:border-darkgray-300 h-4 w-4 border-gray-300 text-black focus:ring-black ltr:mr-2 rtl:ml-2"
+                          value={option.value}
+                          defaultChecked={option.value === props.value?.value}
+                        />
+                        <span className="text-sm ltr:ml-2 ltr:mr-2 rtl:ml-2 dark:text-white">
+                          {t(option.label ?? "")}
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+          {(() => {
+            const optionInput = input.optionsInputs[props.value?.value];
+            if (!optionInput) {
+              return null;
+            }
+            const Component = buildComponentFromInput(optionInput, isRescheduleView, t);
+            return (
+              <Component
+                name={`inputs.${input.name}.optionValue`}
+                value={props.value?.optionValue}
+                setValue={(val) => {
+                  props.setValue({
+                    value: props.value?.value,
+                    optionValue: val,
+                  });
+                }}
+              />
+            );
+          })()}
+        </div>
+      );
+    };
+  }
+
+  return ComponentWithLabel;
+};
+
+const BookingInput = ({ bookingInput, bookingForm, rescheduleUid }) => {
+  const { t } = useLocale();
+
+  const Component = React.useCallback(buildComponentFromInput(bookingInput, !!rescheduleUid, t), [
+    bookingInput,
+    rescheduleUid,
+    t,
+  ]);
+  return (
+    <div className="reloading mb-4">
+      <Controller
+        control={bookingForm.control}
+        name={`inputs.${bookingInput.name}`}
+        render={({ field: { value, onChange } }) => {
+          console.log("value", value);
+          return (
+            <div>
+              <Component
+                className={
+                  bookingForm.formState.errors[`inputs.${bookingInput.name}`] &&
+                  "!focus:ring-red-700 !border-red-700"
+                }
+                value={value}
+                setValue={(val) => {
+                  onChange(val);
+                  console.log("onChange", val);
+                }}
+              />
+              <RhfErrorMessage
+                name="inputs"
+                errors={bookingForm.formState.errors}
+                render={({ message }) => {
+                  const name = message?.replace(/\{([^}]+)\}.*/, "$1");
+                  // Use the message targeted for it.
+                  if (name !== bookingInput.name) {
+                    return null;
+                  }
+                  console.log(name, bookingInput.name, message, "ErrorMesg");
+
+                  message = message.replace(/\{[^}]+\}(.*)/, "$1");
+                  return (
+                    <div name={bookingInput.name} className="flex items-center text-sm text-red-700 ">
+                      <Icon.FiInfo className="h-3 w-3 ltr:mr-2 rtl:ml-2" />
+                      <p>{t(message)}</p>
+                    </div>
+                  );
+                }}
+              />
+            </div>
+          );
+        }}
+      />
+    </div>
+  );
+};
+
+const BookingInputs = ({
+  bookingInputs,
+  bookingForm,
+  guestToggle,
+  locations,
+  selectedLocation,
+  rescheduleUid,
+}) => {
+  const { t } = useLocale();
+  return bookingInputs.map((bookingInput, index) => {
+    const actionHappened = bookingInput.name === "guests" && guestToggle;
+    if (bookingInput.hidden) return null;
+    if (bookingInput.showOnAction && !actionHappened) return null;
+    if (bookingInput.name === "location") {
+      bookingInput.options = locations
+        .map((location) => {
+          const locationString = locationKeyToString(location);
+          if (typeof locationString !== "string") {
+            // It's possible that location app got uninstalled
+            return null;
+          }
+          return {
+            label: locationString,
+            value: location.type,
+          };
+        })
+        .filter(Boolean);
+      bookingInput.optionsInputs.attendeeInPerson.placeholder = t(
+        selectedLocation?.attendeeInputPlaceholder || ""
+      );
+    }
+
+    return (
+      <BookingInput
+        bookingInput={bookingInput}
+        bookingForm={bookingForm}
+        rescheduleUid={rescheduleUid}
+        key={index}
+      />
+    );
+  });
 };
 
 const BookingPage = ({
@@ -243,19 +473,20 @@ const BookingPage = ({
 
   const bookingFormSchema = z
     .object({
-      name: z.string().min(1),
-      email: z.string().trim().email(),
-      phone: z
-        .string()
-        .refine((val) => isValidPhoneNumber(val))
-        .optional()
-        .nullable(),
-      attendeeAddress: z.string().optional().nullable(),
-      smsReminderNumber: z
-        .string()
-        .refine((val) => isValidPhoneNumber(val))
-        .optional()
-        .nullable(),
+      // name: z.string().min(1),
+      // email: z.string().trim().email(),
+      // phone: z
+      //   .string()
+      //   .refine((val) => isValidPhoneNumber(val))
+      //   .optional()
+      //   .nullable(),
+      // attendeeAddress: z.string().optional().nullable(),
+      inputs: getBookingResponsesSchema(eventType),
+      // smsReminderNumber: z
+      //   .string()
+      //   .refine((val) => isValidPhoneNumber(val))
+      //   .optional()
+      //   .nullable(),
     })
     .passthrough();
 
@@ -263,7 +494,9 @@ const BookingPage = ({
     defaultValues: defaultValues(),
     resolver: zodResolver(bookingFormSchema), // Since this isn't set to strict we only validate the fields in the schema
   });
-
+  useEffect(() => {
+    window.bookingForm = bookingForm;
+  });
   const selectedLocationType = useWatch({
     control: bookingForm.control,
     name: "locationType",
@@ -278,12 +511,6 @@ const BookingPage = ({
   });
 
   const selectedLocation = getEventLocationType(selectedLocationType);
-  const AttendeeInput =
-    selectedLocation?.attendeeInputType === "phone"
-      ? PhoneInput
-      : selectedLocation?.attendeeInputType === "attendeeAddress"
-      ? AddressInput
-      : null;
 
   // Calculate the booking date(s)
   let recurringStrings: string[] = [],
@@ -413,7 +640,7 @@ const BookingPage = ({
         bookingUid: router.query.bookingUid as string,
         user: router.query.user,
         location: getEventLocationValue(locations, {
-          type: (booking.locationType ? booking.locationType : selectedLocationType) || "",
+          type: (booking.inputs.location.value ? booking.inputs.location.value : selectedLocationType) || "",
           phone: booking.phone,
           attendeeAddress: booking.attendeeAddress,
         }),
@@ -588,7 +815,15 @@ const BookingPage = ({
             )}
             <div className={classNames("p-6", showEventTypeDetails ? "sm:w-1/2" : "w-full")}>
               <Form form={bookingForm} handleSubmit={bookEvent}>
-                <div className="mb-4">
+                <BookingInputs
+                  bookingInputs={eventType.bookingInputs}
+                  bookingForm={bookingForm}
+                  guestToggle={guestToggle}
+                  locations={locations}
+                  selectedLocation={selectedLocation}
+                  rescheduleUid={rescheduleUid}
+                />
+                {/* <div className="mb-4">
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-white">
                     {t("your_name")}
                   </label>
@@ -629,99 +864,8 @@ const BookingPage = ({
                     )}
                   </div>
                 </div>
-                <>
-                  {rescheduleUid ? (
-                    <div className="mb-4">
-                      <span className="block text-sm font-medium text-gray-700 dark:text-white">
-                        {t("location")}
-                      </span>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {getHumanReadableLocationValue(booking?.location, t)}
-                      </p>
-                    </div>
-                  ) : (
-                    locations.length > 1 && (
-                      <div className="mb-4">
-                        <span className="block text-sm font-medium text-gray-700 dark:text-white">
-                          {t("location")}
-                        </span>
-                        {locations.map((location, i) => {
-                          const locationString = locationKeyToString(location);
-                          if (!selectedLocationType) {
-                            bookingForm.setValue("locationType", locations[0].type);
-                          }
-                          if (typeof locationString !== "string") {
-                            // It's possible that location app got uninstalled
-                            return null;
-                          }
-                          return (
-                            <label key={i} className="block">
-                              <input
-                                type="radio"
-                                disabled={!!disableLocations}
-                                className="location dark:bg-darkgray-300 dark:border-darkgray-300 h-4 w-4 border-gray-300 text-black focus:ring-black ltr:mr-2 rtl:ml-2"
-                                {...bookingForm.register("locationType", { required: true })}
-                                value={location.type}
-                                defaultChecked={i === 0}
-                              />
-                              <span className="text-sm ltr:ml-2 ltr:mr-2 rtl:ml-2 dark:text-white">
-                                {t(locationKeyToString(location) ?? "")}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )
-                  )}
-                </>
-                {/* TODO: Change name and id ="phone" to something generic */}
-                {AttendeeInput && !disableInput && (
-                  <div className="mb-4">
-                    <label
-                      htmlFor={
-                        selectedLocationType === LocationType.Phone
-                          ? "phone"
-                          : selectedLocationType === LocationType.AttendeeInPerson
-                          ? "attendeeAddress"
-                          : ""
-                      }
-                      className="block text-sm font-medium text-gray-700 dark:text-white">
-                      {selectedLocationType === LocationType.Phone
-                        ? t("phone_number")
-                        : selectedLocationType === LocationType.AttendeeInPerson
-                        ? t("address")
-                        : ""}
-                    </label>
-                    <div className="mt-1">
-                      <AttendeeInput<BookingFormValues>
-                        control={bookingForm.control}
-                        bookingForm={bookingForm}
-                        name={
-                          selectedLocationType === LocationType.Phone
-                            ? "phone"
-                            : selectedLocationType === LocationType.AttendeeInPerson
-                            ? "attendeeAddress"
-                            : ""
-                        }
-                        placeholder={t(selectedLocation?.attendeeInputPlaceholder || "")}
-                        id={
-                          selectedLocationType === LocationType.Phone
-                            ? "phone"
-                            : selectedLocationType === LocationType.AttendeeInPerson
-                            ? "attendeeAddress"
-                            : ""
-                        }
-                        required
-                      />
-                    </div>
-                    {bookingForm.formState.errors.phone && (
-                      <div className="mt-2 flex items-center text-sm text-red-700 ">
-                        <Icon.FiInfo className="h-3 w-3 ltr:mr-2 rtl:ml-2" />
-                        <p>{t("invalid_number")}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                
+
                 {eventType.customInputs.map((input) => (
                   <div className="mb-4" key={input.id}>
                     {input.type !== EventTypeCustomInputType.BOOL && (
@@ -878,10 +1022,10 @@ const BookingPage = ({
                           )}
                         />
                       )}
-                      {/* Custom code when guest emails should not be editable */}
+                      {/* Custom code when guest emails should not be editable }
                       {disableInput && guestListEmails && guestListEmails.length > 0 && (
                         <div data-tag className="react-multi-email">
-                          {/* // @TODO: user owners are appearing as guest here when should be only user input */}
+                          {/* // @TODO: user owners are appearing as guest here when should be only user input }
                           {guestListEmails.map((email, index) => {
                             return (
                               <div key={index} className="cursor-pointer">
@@ -945,7 +1089,7 @@ const BookingPage = ({
                       disabled={disabledExceptForOwner}
                     />
                   )}
-                </div>
+                </div> */}
 
                 <div className="flex justify-end space-x-2 rtl:space-x-reverse">
                   {!eventType.disableGuests && !guestToggle && (
