@@ -785,7 +785,11 @@ export function ShellMain(props: LayoutProps) {
   const { isLocaleReady } = useLocale();
   return (
     <>
-      <div className="mb-6 flex sm:mt-0 lg:mb-10">
+      <div
+        className={classNames(
+          "mb-6 flex sm:mt-0 lg:mb-8",
+          props.backPath === "/availability" && "xl:ml-[6.5rem]"
+        )}>
         {!!props.backPath && (
           <Button
             variant="icon"
